@@ -1,130 +1,186 @@
+// ignore_for_file: avoid_print
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:opencv_dart/opencv_dart.dart';
+import 'package:opencv_core/opencv.dart' as cv;
+import 'package:camera/camera.dart';
 
 
 void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  var images = <Uint8List>[];
+
+  var predefinedDictionaryType = cv.PredefinedDictionaryType.DICT_4X4_1000;
+  var cameras = <String>[];
+  var selectedCamera = "";
+
+  @override
+  void initState() {
+    super.initState();
+
+    availableCameras().then((value) {
+      setState(() {
+        cameras = value.map((e) => e.name).toList();
+        if (cameras.isNotEmpty) {
+          selectedCamera = cameras[0];
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  Future<cv.Mat> detectMarkers(cv.Mat im) async {
+    late cv.Mat gray;
+    gray = cv.cvtColor(im, cv.COLOR_BGR2GRAY);
+    var detector = cv.ArucoDetector.create(cv.ArucoDictionary.predefined(predefinedDictionaryType), cv.ArucoDetectorParameters.empty());
+    var result = detector.detectMarkers(gray);
+    var overlay = im.clone();
+    
+    for (int i = 0; i < result.$2.length; i++) {
+      var corners = result.$1[i];
+      var id = result.$2[i];
+      print("marker id: $id, corners: $corners");
+      // draw the marker border
+      for (int j = 0; j < 4; j++) {
+        cv.Point p1 = cv.Point(corners[j].x.toInt(), corners[j].y.toInt());
+        cv.Point p2 = cv.Point(corners[(j + 1) % 4].x.toInt(), corners[(j + 1) % 4].y.toInt());
+        
+        cv.line(overlay, p1, p2, cv.Scalar(0, 255, 0), thickness:6);
+      }
+      // put the marker id text
+      cv.Point corners0 = cv.Point(corners[0].x.toInt(), corners[0].y.toInt());
+      // find bottom left corner
+      for (int j = 1; j < 4; j++) {
+        if (corners[j].x - corners[j].y < corners0.x - corners0.y) {
+          corners0 = cv.Point(corners[j].x.toInt(), corners[j].y.toInt());
+        }
+      }
+      cv.Point offset = cv.Point(10, -10);
+      corners0 = cv.Point(corners0.x + offset.x, corners0.y + offset.y);
+      cv.putText(overlay, id.toString(), corners0, cv.FONT_HERSHEY_SIMPLEX, 5, cv.Scalar(255, 0, 255), thickness: 8);
+    }
+
+    return overlay;
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
+      home: Scaffold(
+        appBar: AppBar(title: const Text('MarkID')),
+        body: Container(
+          alignment: Alignment.center,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text("Dictionary: "),
+                  DropdownButton<cv.PredefinedDictionaryType>(
+                    value: predefinedDictionaryType,
+                    items: cv.PredefinedDictionaryType.values
+                        .map((e) => DropdownMenuItem(
+                              value: e,
+                              child: Text(e.toString().split('.').last),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      setState(() {
+                        predefinedDictionaryType = v!;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text("Camera: "),
+                  DropdownButton<String>(
+                    value: selectedCamera,
+                    items: cameras.map((e) => DropdownMenuItem(
+                          value: e,
+                          child: Text(e),
+                        )).toList(),
+                    
+                    onChanged: (v) {
+                      setState(() {
+                        selectedCamera = v!;
+                      });
+                    },
+                  )
+                ],
+              ),
+              ElevatedButton(onPressed: () async {
+                // Ensure that plugin services are initialized so that `availableCameras()`
+                // can be called before `runApp()`
+                WidgetsFlutterBinding.ensureInitialized();
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+                // Obtain a list of the available cameras on the device.
+                final cameras = await availableCameras();
+                
+                // Get a specific camera from the list of available cameras.
+                final firstCamera = cameras.firstWhere((element) => element.name == selectedCamera);
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
+                final cameraController = CameraController(
+                  firstCamera,
+                  ResolutionPreset.medium,
+                );
+                await cameraController.initialize();
+                final capturedImage = await cameraController.takePicture();
+                await cameraController.dispose();
+                final bytes = await capturedImage.readAsBytes();
+                final capturedMat = cv.imdecode(bytes, cv.IMREAD_COLOR);
 
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _markerId = 0;
-
-  void _launchScanner() {
-    int detectedMarkerId = -1;
-
-    VideoCapture capture = VideoCapture.empty();
-    capture.openIndex(0);
-    capture.grab();
-    var (success, frame) = capture.read();
-    if (success)
-    {
-      ArucoDetector detector = ArucoDetector.create(ArucoDictionary.predefined(PredefinedDictionaryType.DICT_4X4_1000), ArucoDetectorParameters.empty());
-      detector.detectMarkers(frame);
-
-    }
-
-
-    setState(() {_markerId = detectedMarkerId;});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _launchScanner method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_markerId',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+                if (capturedImage != null) {
+                  final overlay = await detectMarkers(capturedMat);
+                  var newImages = <Uint8List>[];
+                  newImages = [
+                    cv.imencode(".png", overlay).$2,
+                  ];
+                  setState(() {
+                    images = newImages;
+                  });
+                }
+              }, child: const Text("Capture Image")),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    images = [];
+                  });
+                },
+                child: const Text("Clear"),
+              ),
+              Expanded(
+                flex: 2,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: images.length,
+                        itemBuilder: (ctx, idx) => Card(child: Image.memory(images[idx])),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _launchScanner,
-        tooltip: 'Increment',
-        child: const Icon(Icons.camera_rounded),
       ),
     );
   }
