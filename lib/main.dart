@@ -138,7 +138,8 @@ class _MyAppState extends State<MyApp> {
 
                 final cameraController = CameraController(
                   firstCamera,
-                  ResolutionPreset.medium,
+                  ResolutionPreset.high,
+                  enableAudio: false,
                 );
                 await cameraController.initialize();
                 final capturedImage = await cameraController.takePicture();
@@ -149,8 +150,9 @@ class _MyAppState extends State<MyApp> {
                 if (capturedImage != null) {
                   final overlay = await detectMarkers(capturedMat);
                   var newImages = <Uint8List>[];
+                  cv.VecI32 pngParams = cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 1, cv.IMWRITE_PNG_STRATEGY, cv.IMWRITE_PNG_STRATEGY_HUFFMAN_ONLY]);
                   newImages = [
-                    cv.imencode(".png", overlay).$2,
+                    cv.imencode(".png", overlay, params: pngParams).$2,
                   ];
                   setState(() {
                     images = newImages;
