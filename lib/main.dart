@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:opencv_core/opencv.dart' as cv;
 import 'package:camera/camera.dart';
 
-
 void main() {
   runApp(const MyApp());
 }
@@ -50,19 +49,22 @@ class _MyAppState extends State<MyApp> {
   Future<cv.Mat> detectMarkers(cv.Mat im) async {
     late cv.Mat gray;
     gray = cv.cvtColor(im, cv.COLOR_BGR2GRAY);
-    var detector = cv.ArucoDetector.create(cv.ArucoDictionary.predefined(predefinedDictionaryType), cv.ArucoDetectorParameters.empty());
+    var detector = cv.ArucoDetector.create(
+        cv.ArucoDictionary.predefined(predefinedDictionaryType),
+        cv.ArucoDetectorParameters.empty());
     var result = await detector.detectMarkersAsync(gray);
     var overlay = await im.cloneAsync();
-    
+
     for (int i = 0; i < result.$2.length; i++) {
       var corners = result.$1[i];
       var id = result.$2[i];
       // draw the marker border
       for (int j = 0; j < 4; j++) {
         cv.Point p1 = cv.Point(corners[j].x.toInt(), corners[j].y.toInt());
-        cv.Point p2 = cv.Point(corners[(j + 1) % 4].x.toInt(), corners[(j + 1) % 4].y.toInt());
-        
-        await cv.lineAsync(overlay, p1, p2, cv.Scalar(0, 255, 0), thickness:6);
+        cv.Point p2 = cv.Point(
+            corners[(j + 1) % 4].x.toInt(), corners[(j + 1) % 4].y.toInt());
+
+        await cv.lineAsync(overlay, p1, p2, cv.Scalar(0, 255, 0), thickness: 6);
       }
       // put the marker id text
       cv.Point corners0 = cv.Point(corners[0].x.toInt(), corners[0].y.toInt());
@@ -74,7 +76,9 @@ class _MyAppState extends State<MyApp> {
       }
       cv.Point offset = cv.Point(10, -10);
       corners0 = cv.Point(corners0.x + offset.x, corners0.y + offset.y);
-      await cv.putTextAsync(overlay, id.toString(), corners0, cv.FONT_HERSHEY_SIMPLEX, 5, cv.Scalar(255, 0, 255), thickness: 8);
+      await cv.putTextAsync(overlay, id.toString(), corners0,
+          cv.FONT_HERSHEY_SIMPLEX, 5, cv.Scalar(255, 0, 255),
+          thickness: 8);
     }
 
     return overlay;
@@ -83,7 +87,9 @@ class _MyAppState extends State<MyApp> {
   Future<void> processCameraStream(CameraController cameraController) async {
     final capturedImage = await cameraController.takePicture();
     if (await capturedImage.length() > 0) {
-      var newImages = [await processImageBytes(await capturedImage.readAsBytes())];
+      var newImages = [
+        await processImageBytes(await capturedImage.readAsBytes())
+      ];
       setState(() {
         images = newImages;
       });
@@ -91,25 +97,25 @@ class _MyAppState extends State<MyApp> {
 
     if (requestStopCamera) {
       requestStopCamera = false;
-      await stopCamera( cameraController);
+      await stopCamera(cameraController);
       return;
     }
     await processCameraStream(cameraController);
   }
 
   Future<CameraController> initializeCamera() async {
-
     setState(() {
       isCameraRunning = true;
     });
     final cameras = await availableCameras();
-    final firstCamera = cameras.firstWhere((element) => element.name == selectedCamera);
+    final firstCamera =
+        cameras.firstWhere((element) => element.name == selectedCamera);
 
     final cameraController = CameraController(
-                  firstCamera,
-                  ResolutionPreset.high,
-                  enableAudio: false,
-                );
+      firstCamera,
+      ResolutionPreset.high,
+      enableAudio: false,
+    );
     await cameraController.initialize();
     return cameraController;
   }
@@ -124,8 +130,14 @@ class _MyAppState extends State<MyApp> {
   Future<Uint8List> processImageBytes(Uint8List bytes) async {
     final mat = await cv.imdecodeAsync(bytes, cv.IMREAD_COLOR);
     final overlay = await detectMarkers(mat);
-    cv.VecI32 pngParams = cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 1, cv.IMWRITE_PNG_STRATEGY, cv.IMWRITE_PNG_STRATEGY_HUFFMAN_ONLY]);
-    final overlayBytes = await cv.imencodeAsync(".png", overlay, params: pngParams);
+    cv.VecI32 pngParams = cv.VecI32.fromList([
+      cv.IMWRITE_PNG_COMPRESSION,
+      1,
+      cv.IMWRITE_PNG_STRATEGY,
+      cv.IMWRITE_PNG_STRATEGY_HUFFMAN_ONLY
+    ]);
+    final overlayBytes =
+        await cv.imencodeAsync(".png", overlay, params: pngParams);
     return overlayBytes.$2;
   }
 
@@ -164,16 +176,19 @@ class _MyAppState extends State<MyApp> {
                   Text("Camera: "),
                   DropdownButton<String>(
                     value: selectedCamera,
-                    items: cameras.map((e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(e),
-                        )).toList(),
-                    
-                    onChanged: isCameraRunning ? null : (v) {
-                      setState(() {
-                        selectedCamera = v!;
-                      });
-                    },
+                    items: cameras
+                        .map((e) => DropdownMenuItem(
+                              value: e,
+                              child: Text(e),
+                            ))
+                        .toList(),
+                    onChanged: isCameraRunning
+                        ? null
+                        : (v) {
+                            setState(() {
+                              selectedCamera = v!;
+                            });
+                          },
                   )
                 ],
               ),
@@ -181,38 +196,52 @@ class _MyAppState extends State<MyApp> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ElevatedButton(
-                    onPressed: isCameraRunning ? null : () async {
-                      await processCameraStream(await initializeCamera());
-                    }, 
-                    child: Text("Start")
-                  ),
-                  ElevatedButton(onPressed: isCameraRunning ? () async {
-                      requestStopCamera = true;
-                    } : null, 
-                    child: Text("Stop")
-                  ),
-                  ElevatedButton(onPressed: isCameraRunning ? null : () async {
-                    CameraController cameraController = await initializeCamera();
-                    final capturedImage = await cameraController.takePicture();
-                    await stopCamera(cameraController);
-                    if (await capturedImage.length() > 0) {
-                      var newImages = [await processImageBytes(await capturedImage.readAsBytes())];
-                      setState(() {
-                        images = newImages;
-                      });
-                    }
-                  }, child: const Text("Single")),
+                      onPressed: isCameraRunning
+                          ? null
+                          : () async {
+                              await processCameraStream(
+                                  await initializeCamera());
+                            },
+                      child: Text("Start")),
                   ElevatedButton(
-                    onPressed: images.isEmpty ? null : () {
-                      setState(() {
-                        images = [];
-                      });
-                    },
+                      onPressed: isCameraRunning
+                          ? () async {
+                              requestStopCamera = true;
+                            }
+                          : null,
+                      child: Text("Stop")),
+                  ElevatedButton(
+                      onPressed: isCameraRunning
+                          ? null
+                          : () async {
+                              CameraController cameraController =
+                                  await initializeCamera();
+                              final capturedImage =
+                                  await cameraController.takePicture();
+                              await stopCamera(cameraController);
+                              if (await capturedImage.length() > 0) {
+                                var newImages = [
+                                  await processImageBytes(
+                                      await capturedImage.readAsBytes())
+                                ];
+                                setState(() {
+                                  images = newImages;
+                                });
+                              }
+                            },
+                      child: const Text("Single")),
+                  ElevatedButton(
+                    onPressed: images.isEmpty
+                        ? null
+                        : () {
+                            setState(() {
+                              images = [];
+                            });
+                          },
                     child: const Text("Clear"),
                   ),
                 ],
               ),
-       
               Expanded(
                 flex: 2,
                 child: Row(
@@ -220,7 +249,11 @@ class _MyAppState extends State<MyApp> {
                     Expanded(
                       child: ListView.builder(
                         itemCount: images.length,
-                        itemBuilder: (ctx, idx) => Card(child: Image.memory(images[idx], gaplessPlayback: true,)),
+                        itemBuilder: (ctx, idx) => Card(
+                            child: Image.memory(
+                          images[idx],
+                          gaplessPlayback: true,
+                        )),
                       ),
                     ),
                   ],
