@@ -51,19 +51,18 @@ class _MyAppState extends State<MyApp> {
     late cv.Mat gray;
     gray = cv.cvtColor(im, cv.COLOR_BGR2GRAY);
     var detector = cv.ArucoDetector.create(cv.ArucoDictionary.predefined(predefinedDictionaryType), cv.ArucoDetectorParameters.empty());
-    var result = detector.detectMarkers(gray);
-    var overlay = im.clone();
+    var result = await detector.detectMarkersAsync(gray);
+    var overlay = await im.cloneAsync();
     
     for (int i = 0; i < result.$2.length; i++) {
       var corners = result.$1[i];
       var id = result.$2[i];
-      print("marker id: $id, corners: $corners");
       // draw the marker border
       for (int j = 0; j < 4; j++) {
         cv.Point p1 = cv.Point(corners[j].x.toInt(), corners[j].y.toInt());
         cv.Point p2 = cv.Point(corners[(j + 1) % 4].x.toInt(), corners[(j + 1) % 4].y.toInt());
         
-        cv.line(overlay, p1, p2, cv.Scalar(0, 255, 0), thickness:6);
+        await cv.lineAsync(overlay, p1, p2, cv.Scalar(0, 255, 0), thickness:6);
       }
       // put the marker id text
       cv.Point corners0 = cv.Point(corners[0].x.toInt(), corners[0].y.toInt());
@@ -75,7 +74,7 @@ class _MyAppState extends State<MyApp> {
       }
       cv.Point offset = cv.Point(10, -10);
       corners0 = cv.Point(corners0.x + offset.x, corners0.y + offset.y);
-      cv.putText(overlay, id.toString(), corners0, cv.FONT_HERSHEY_SIMPLEX, 5, cv.Scalar(255, 0, 255), thickness: 8);
+      await cv.putTextAsync(overlay, id.toString(), corners0, cv.FONT_HERSHEY_SIMPLEX, 5, cv.Scalar(255, 0, 255), thickness: 8);
     }
 
     return overlay;
@@ -183,7 +182,6 @@ class _MyAppState extends State<MyApp> {
                 children: [
                   ElevatedButton(
                     onPressed: isCameraRunning ? null : () async {
-                      
                       await processCameraStream(await initializeCamera());
                     }, 
                     child: Text("Start")
@@ -214,6 +212,7 @@ class _MyAppState extends State<MyApp> {
                   ),
                 ],
               ),
+       
               Expanded(
                 flex: 2,
                 child: Row(
