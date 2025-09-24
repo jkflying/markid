@@ -1,5 +1,7 @@
 // ignore_for_file: avoid_print
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:opencv_core/opencv.dart' as cv;
@@ -22,7 +24,9 @@ class _MyAppState extends State<MyApp> {
 
   var predefinedDictionaryType = cv.PredefinedDictionaryType.DICT_4X4_1000;
   var cameras = <String>[];
-  var selectedCamera = "";
+  String selectedCamera = "";
+  bool isCameraRunning = false;
+  bool requestStopCamera = false;
 
   @override
   void initState() {
@@ -77,6 +81,55 @@ class _MyAppState extends State<MyApp> {
     return overlay;
   }
 
+  Future<void> processCameraStream(CameraController cameraController) async {
+    final capturedImage = await cameraController.takePicture();
+    if (await capturedImage.length() > 0) {
+      var newImages = [await processImageBytes(await capturedImage.readAsBytes())];
+      setState(() {
+        images = newImages;
+      });
+    }
+
+    if (requestStopCamera) {
+      requestStopCamera = false;
+      await stopCamera( cameraController);
+      return;
+    }
+    await processCameraStream(cameraController);
+  }
+
+  Future<CameraController> initializeCamera() async {
+
+    setState(() {
+      isCameraRunning = true;
+    });
+    final cameras = await availableCameras();
+    final firstCamera = cameras.firstWhere((element) => element.name == selectedCamera);
+
+    final cameraController = CameraController(
+                  firstCamera,
+                  ResolutionPreset.high,
+                  enableAudio: false,
+                );
+    await cameraController.initialize();
+    return cameraController;
+  }
+
+  Future<void> stopCamera(CameraController cameraController) async {
+    await cameraController.dispose();
+    setState(() {
+      isCameraRunning = false;
+    });
+  }
+
+  Future<Uint8List> processImageBytes(Uint8List bytes) async {
+    final mat = await cv.imdecodeAsync(bytes, cv.IMREAD_COLOR);
+    final overlay = await detectMarkers(mat);
+    cv.VecI32 pngParams = cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 1, cv.IMWRITE_PNG_STRATEGY, cv.IMWRITE_PNG_STRATEGY_HUFFMAN_ONLY]);
+    final overlayBytes = await cv.imencodeAsync(".png", overlay, params: pngParams);
+    return overlayBytes.$2;
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -117,7 +170,7 @@ class _MyAppState extends State<MyApp> {
                           child: Text(e),
                         )).toList(),
                     
-                    onChanged: (v) {
+                    onChanged: isCameraRunning ? null : (v) {
                       setState(() {
                         selectedCamera = v!;
                       });
@@ -125,47 +178,41 @@ class _MyAppState extends State<MyApp> {
                   )
                 ],
               ),
-              ElevatedButton(onPressed: () async {
-                // Ensure that plugin services are initialized so that `availableCameras()`
-                // can be called before `runApp()`
-                WidgetsFlutterBinding.ensureInitialized();
-
-                // Obtain a list of the available cameras on the device.
-                final cameras = await availableCameras();
-                
-                // Get a specific camera from the list of available cameras.
-                final firstCamera = cameras.firstWhere((element) => element.name == selectedCamera);
-
-                final cameraController = CameraController(
-                  firstCamera,
-                  ResolutionPreset.high,
-                  enableAudio: false,
-                );
-                await cameraController.initialize();
-                final capturedImage = await cameraController.takePicture();
-                await cameraController.dispose();
-                final bytes = await capturedImage.readAsBytes();
-                final capturedMat = cv.imdecode(bytes, cv.IMREAD_COLOR);
-
-                if (capturedImage != null) {
-                  final overlay = await detectMarkers(capturedMat);
-                  var newImages = <Uint8List>[];
-                  cv.VecI32 pngParams = cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 1, cv.IMWRITE_PNG_STRATEGY, cv.IMWRITE_PNG_STRATEGY_HUFFMAN_ONLY]);
-                  newImages = [
-                    cv.imencode(".png", overlay, params: pngParams).$2,
-                  ];
-                  setState(() {
-                    images = newImages;
-                  });
-                }
-              }, child: const Text("Capture Image")),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    images = [];
-                  });
-                },
-                child: const Text("Clear"),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton(
+                    onPressed: isCameraRunning ? null : () async {
+                      
+                      await processCameraStream(await initializeCamera());
+                    }, 
+                    child: Text("Start")
+                  ),
+                  ElevatedButton(onPressed: isCameraRunning ? () async {
+                      requestStopCamera = true;
+                    } : null, 
+                    child: Text("Stop")
+                  ),
+                  ElevatedButton(onPressed: isCameraRunning ? null : () async {
+                    CameraController cameraController = await initializeCamera();
+                    final capturedImage = await cameraController.takePicture();
+                    await stopCamera(cameraController);
+                    if (await capturedImage.length() > 0) {
+                      var newImages = [await processImageBytes(await capturedImage.readAsBytes())];
+                      setState(() {
+                        images = newImages;
+                      });
+                    }
+                  }, child: const Text("Single")),
+                  ElevatedButton(
+                    onPressed: images.isEmpty ? null : () {
+                      setState(() {
+                        images = [];
+                      });
+                    },
+                    child: const Text("Clear"),
+                  ),
+                ],
               ),
               Expanded(
                 flex: 2,
@@ -174,7 +221,7 @@ class _MyAppState extends State<MyApp> {
                     Expanded(
                       child: ListView.builder(
                         itemCount: images.length,
-                        itemBuilder: (ctx, idx) => Card(child: Image.memory(images[idx])),
+                        itemBuilder: (ctx, idx) => Card(child: Image.memory(images[idx], gaplessPlayback: true,)),
                       ),
                     ),
                   ],
