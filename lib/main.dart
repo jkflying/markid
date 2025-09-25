@@ -1,11 +1,10 @@
 // ignore_for_file: avoid_print
 
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:opencv_core/opencv.dart' as cv;
 import 'package:camera/camera.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() {
   runApp(const MyApp());
@@ -26,6 +25,12 @@ class _MyAppState extends State<MyApp> {
   String selectedCamera = "";
   bool isCameraRunning = false;
   bool requestStopCamera = false;
+  CameraController cameraController = CameraController(
+    CameraDescription(
+        name: "none", lensDirection: CameraLensDirection.back, sensorOrientation: 0),
+    ResolutionPreset.low,
+    enableAudio: false,
+  );
 
   @override
   void initState() {
@@ -84,26 +89,33 @@ class _MyAppState extends State<MyApp> {
     return overlay;
   }
 
-  Future<void> processCameraStream(CameraController cameraController) async {
-    final capturedImage = await cameraController.takePicture();
-    if (await capturedImage.length() > 0) {
-      var newImages = [
-        await processImageBytes(await capturedImage.readAsBytes())
-      ];
-      setState(() {
-        images = newImages;
-      });
+  Future<void> processCameraStream() async {
+    bool imageProcesessed = false;
+    if (cameraController != null && !cameraController.value.hasError) {
+      final capturedImage = await cameraController.takePicture();
+      if (await capturedImage.length() > 0) {
+        var newImages = [
+          await processImageBytes(await capturedImage.readAsBytes())
+        ];
+        setState(() {
+          images = newImages;
+        });
+        imageProcesessed = true;
+      }
     }
 
-    if (requestStopCamera) {
+    print("imageProcesessed: $imageProcesessed");
+
+    if (requestStopCamera || !imageProcesessed) {
       requestStopCamera = false;
-      await stopCamera(cameraController);
+      await stopCamera(true);
       return;
     }
-    await processCameraStream(cameraController);
+    await processCameraStream();
   }
 
-  Future<CameraController> initializeCamera() async {
+  Future<void> initializeCamera() async {
+    WakelockPlus.enable();
     setState(() {
       isCameraRunning = true;
     });
@@ -111,20 +123,33 @@ class _MyAppState extends State<MyApp> {
     final firstCamera =
         cameras.firstWhere((element) => element.name == selectedCamera);
 
-    final cameraController = CameraController(
+    cameraController = CameraController(
       firstCamera,
       ResolutionPreset.high,
       enableAudio: false,
     );
     await cameraController.initialize();
-    return cameraController;
   }
 
-  Future<void> stopCamera(CameraController cameraController) async {
-    await cameraController.dispose();
-    setState(() {
-      isCameraRunning = false;
-    });
+  Future<void> stopCamera(bool immediately) async {
+    if (immediately) {
+      await cameraController.dispose();
+      setState(() {
+        isCameraRunning = false;
+      });
+      WakelockPlus.disable();
+    }
+else {
+
+    requestStopCamera = true;
+  Future.delayed(const Duration(seconds: 2), () async {
+    if (requestStopCamera) {
+      requestStopCamera = false;
+      await stopCamera(true);
+      return;
+    }
+  });
+  }
   }
 
   Future<Uint8List> processImageBytes(Uint8List bytes) async {
@@ -199,14 +224,14 @@ class _MyAppState extends State<MyApp> {
                       onPressed: isCameraRunning
                           ? null
                           : () async {
-                              await processCameraStream(
-                                  await initializeCamera());
+                            await initializeCamera();
+                            await processCameraStream();
                             },
                       child: Text("Start")),
                   ElevatedButton(
                       onPressed: isCameraRunning
                           ? () async {
-                              requestStopCamera = true;
+                              await stopCamera(false);
                             }
                           : null,
                       child: Text("Stop")),
@@ -214,11 +239,10 @@ class _MyAppState extends State<MyApp> {
                       onPressed: isCameraRunning
                           ? null
                           : () async {
-                              CameraController cameraController =
-                                  await initializeCamera();
+                              await initializeCamera();
                               final capturedImage =
                                   await cameraController.takePicture();
-                              await stopCamera(cameraController);
+                              await stopCamera(true);
                               if (await capturedImage.length() > 0) {
                                 var newImages = [
                                   await processImageBytes(
